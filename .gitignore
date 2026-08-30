@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Runtime data and generated artifacts
+data/
+logs/
+exports/
+backups/
+.backups/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.bak
+*.tmp
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+!*.env.template
+*secret*
+*credential*
+*token*
+*.key
+*.pem
+*.p12
+
+# Local/remote diagnostic dumps
+*.har
+*.pcap
+*.pcapng
+cookies*
+session*
+profile*
+
+# Third-party reference checkouts. See docs/SOURCE-SELECTION.md for sources.
+upstream/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

@@ -1,0 +1,55 @@
+services:
+  api:
+    build: ./api
+    container_name: mailbox-api
+    environment:
+      - DATABASE_URL=postgresql://mailbox:mailbox@db:5432/mailbox
+      - REDIS_URL=redis://redis:6379/0
+      - API_BASE_URL=https://mail.i7wap.xyz
+      - MAILU_ADMIN_API_URL=http://mailu-admin:80/api/v1
+      - MAILU_IMAP_HOST=mailu-imap
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  admin:
+    build: ./admin
+    container_name: mailbox-admin
+    environment:
+      - DATABASE_URL=postgresql://mailbox:mailbox@db:5432/mailbox
+      - API_BASE_URL=https://mail.i7wap.xyz
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  worker:
+    build: ./worker
+    container_name: mailbox-worker
+    environment:
+      - DATABASE_URL=postgresql://mailbox:mailbox@db:5432/mailbox
+      - REDIS_URL=redis://redis:6379/0
+      - MAILU_IMAP_HOST=mailu-imap
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: mailbox-db
+    environment:
+      - POSTGRES_DB=mailbox
+      - POSTGRES_USER=mailbox
+      - POSTGRES_PASSWORD=mailbox
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: mailbox-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped

@@ -1,0 +1,11 @@
+# mailbox-system begin
+mail.i7wap.xyz {
+    bind 103.214.172.30
+    encode zstd gzip
+
+    @mailbox_api path /health /mail/* /api/mail/* /box /box/*
+    reverse_proxy @mailbox_api 127.0.0.1:18080
+
+    reverse_proxy 127.0.0.1:18088
+}
+# mailbox-system end

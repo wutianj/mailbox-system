@@ -1,0 +1,212 @@
+name: mailbox-system
+
+services:
+  mailbox-db:
+    image: postgres:16-alpine
+    container_name: mailbox-db
+    environment:
+      POSTGRES_DB: mailbox
+      POSTGRES_USER: mailbox
+      POSTGRES_PASSWORD: ${MAILBOX_DB_PASSWORD}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailbox -d mailbox"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mailbox-redis:
+    image: redis:7-alpine
+    container_name: mailbox-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped
+
+  mailbox-api:
+    build: ./api
+    container_name: mailbox-api
+    env_file:
+      - path: ./mailbox-api.env
+        required: false
+    ports:
+      - "127.0.0.1:${MAILBOX_API_PORT:-18080}:8000"
+    depends_on:
+      mailbox-db:
+        condition: service_healthy
+      mailbox-redis:
+        condition: service_started
+      front:
+        condition: service_started
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mailbox-worker:
+    build: ./api
+    container_name: mailbox-worker
+    command: ["python", "-m", "mailbox_api.worker"]
+    env_file:
+      - path: ./mailbox-api.env
+        required: false
+    depends_on:
+      mailbox-db:
+        condition: service_healthy
+      front:
+        condition: service_started
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+
+  redis:
+    image: redis:7-alpine
+    container_name: mailbox-mailu-redis
+    volumes:
+      - ./mailu/redis:/data
+    restart: unless-stopped
+
+  front:
+    image: ghcr.io/mailu/nginx:${MAILU_VERSION:-2024.06}
+    container_name: mailbox-mailu-front
+    env_file:
+      - path: ./mailu.env
+        required: false
+    ports:
+      - "127.0.0.1:${MAILU_HTTP_PORT:-18088}:80"
+      - "${MAIL_HOST_IP}:25:25"
+    volumes:
+      - ./mailu/certs:/certs
+      - ./mailu/overrides/nginx:/overrides:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:10204/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  admin:
+    image: ghcr.io/mailu/admin:${MAILU_VERSION:-2024.06}
+    container_name: mailbox-mailu-admin
+    env_file:
+      - path: ./mailu.env
+        required: false
+    volumes:
+      - ./mailu/data:/data
+      - ./mailu/dkim:/dkim
+      - ./mailu/overrides/admin/sidebar.html:/app/mailu/ui/templates/sidebar.html:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+
+  imap:
+    image: ghcr.io/mailu/dovecot:${MAILU_VERSION:-2024.06}
+    container_name: mailbox-mailu-imap
+    env_file:
+      - path: ./mailu.env
+        required: false
+    volumes:
+      - ./mailu/mail:/mail
+      - ./mailu/overrides/dovecot:/overrides:ro
+    depends_on:
+      - front
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+
+  smtp:
+    image: ghcr.io/mailu/postfix:${MAILU_VERSION:-2024.06}
+    container_name: mailbox-mailu-smtp
+    env_file:
+      - path: ./mailu.env
+        required: false
+    volumes:
+      - ./mailu/mailqueue:/queue
+      - ./mailu/overrides/postfix:/overrides:ro
+    depends_on:
+      - front
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+
+  antispam:
+    image: ghcr.io/mailu/rspamd:${MAILU_VERSION:-2024.06}
+    container_name: mailbox-mailu-antispam
+    env_file:
+      - path: ./mailu.env
+        required: false
+    networks:
+      - default
+      - clamav
+    volumes:
+      - ./mailu/filter:/var/lib/rspamd
+      - ./mailu/overrides/rspamd:/overrides:ro
+    depends_on:
+      - front
+      - redis
+      - antivirus
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+
+  antivirus:
+    image: clamav/clamav-debian:1.4_base
+    container_name: mailbox-mailu-antivirus
+    networks:
+      - clamav
+    volumes:
+      - ./mailu/clamav:/var/lib/clamav
+    restart: unless-stopped
+
+  webmail:
+    image: ghcr.io/mailu/webmail:${MAILU_VERSION:-2024.06}
+    container_name: mailbox-mailu-webmail
+    env_file:
+      - path: ./mailu.env
+        required: false
+    volumes:
+      - ./mailu/webmail:/data
+      - ./mailu/overrides/roundcube:/overrides:ro
+    depends_on:
+      - front
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 524288
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: ${MAILBOX_DOCKER_SUBNET:-172.31.214.0/24}
+  clamav:
+    driver: bridge
